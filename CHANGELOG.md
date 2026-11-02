@@ -28,6 +28,8 @@ First tagged release. Not published on PyPI: install from a clone or from the re
 - `agent_starter.fakes`: offline client stand-ins (`ScriptedClient`, `ExtractiveClient`, `FakeStream`).
 - Packaging: extras `mcp`, `embeddings`, `dev`; console scripts; SPDX license metadata; sdist includes the example
   docs and eval cases. CI builds the sdist and wheel and smoke-tests the wheel in a clean environment.
+- Manual release workflow (`.github/workflows/release.yml`): checks, builds, tags and creates the GitHub release
+  with the built files attached.
 - CHANGELOG and CONTRIBUTING.
 
 [Unreleased]: https://github.com/ThalzeronLabs/ai-agent-starter/compare/v0.1.0...HEAD

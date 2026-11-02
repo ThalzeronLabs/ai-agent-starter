@@ -1,0 +1,58 @@
+name: Release
+
+# Run by hand (Actions → Release → Run workflow) with the version to release. It re-runs the offline checks, builds
+# the sdist and wheel, tags the commit as v<version> and creates a GitHub release with the CHANGELOG section as notes
+# and the built files attached. Nothing is published to PyPI.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (must match agent_starter.__version__)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check the version matches the package and the CHANGELOG
+        run: |
+          actual=$(python -c "import re, pathlib; print(re.search(r'__version__ = \"(.+?)\"', pathlib.Path('src/agent_starter/__init__.py').read_text())[1])")
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::Requested $VERSION but agent_starter.__version__ is $actual"; exit 1
+          fi
+          grep -q "^## \[$VERSION\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no [$VERSION] section"; exit 1; }
+
+      - name: Tests and offline evaluation
+        run: |
+          pip install -e ".[dev]"
+          pytest -q
+          python -m agent_starter.evals
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Release notes from the CHANGELOG
+        run: |
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && (/^## \[/ || /^\[[^]]+\]: /) { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md
+
+      - name: Tag and create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v$VERSION" dist/* --target "$GITHUB_SHA" --title "v$VERSION" --notes-file notes.md
