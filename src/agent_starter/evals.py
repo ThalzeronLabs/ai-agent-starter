@@ -143,7 +143,17 @@ def run_eval(cases: list[EvalCase], index: Retriever, client, **ask_kwargs) -> E
     return EvalReport(results)
 
 
-def format_report(report: EvalReport) -> str:
+def format_report(report: EvalReport, markdown: bool = False) -> str:
+    if markdown:
+        def cell(value: str) -> str:
+            return value.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+
+        lines = ["| case | pass | P | R | cited |", "| --- | --- | --- | --- | --- |"]
+        for r in report.results:
+            lines.append(f"| {cell(r.id)} | {'ok' if r.passed else 'FAIL'} | {r.precision:.2f} | {r.recall:.2f} | {cell(', '.join(r.cited) or '-')} |")
+        lines += ["", "| metric | value |", "| --- | --- |"]
+        lines += [f"| {name} | {value:.2f} |" for name, value in report.summary.items()]
+        return "\n".join(lines)
     lines = [f"{'case':<28} {'pass':<5} {'P':>5} {'R':>5}  cited"]
     for r in report.results:
         mark = "ok" if r.passed else "FAIL"
@@ -164,14 +174,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-recall", type=float, default=0.9, help="Fail below this mean citation recall.")
     parser.add_argument("--min-precision", type=float, default=0.8, help="Fail below this mean citation precision.")
     parser.add_argument("--min-supported", type=float, default=0.9, help="Fail below this share of supported answers.")
-    parser.add_argument("--json", action="store_true", help="Print the full report as JSON.")
+    parser.add_argument("--only", action="append", default=[], metavar="ID", help="Run only this case ID (repeatable).")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="Print the full report as JSON.")
+    output.add_argument("--markdown", action="store_true", help="Print GitHub-flavored Markdown tables.")
     parser.add_argument("--max-chars", type=int, default=900, help="Soft chunk size (minimum 100). Evaluation citation tags assume the default 900.")
     args = parser.parse_args(argv)
     if args.max_chars < 100:
         parser.error("--max-chars must be at least 100")
 
-    index = build_retriever(args.docs, args.retriever, max_chars=args.max_chars)
     cases = load_cases(args.cases)
+    valid_ids = {case.id for case in cases}
+    unknown = set(args.only) - valid_ids
+    if unknown:
+        parser.error(f"Unknown case IDs: {', '.join(sorted(unknown))}. Valid IDs: {', '.join(sorted(valid_ids))}")
+    if args.only:
+        cases = [case for case in cases if case.id in args.only]
+    index = build_retriever(args.docs, args.retriever, max_chars=args.max_chars)
     if args.live:
         import anthropic
 
@@ -185,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps({"summary": report.summary, "results": [asdict(r) for r in report.results]}, indent=2))
     else:
-        print(format_report(report))
+        print(format_report(report, markdown=args.markdown))
 
     summary = report.summary
     failures = [

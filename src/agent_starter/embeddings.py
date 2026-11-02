@@ -75,9 +75,11 @@ class EmbeddingIndex:
 
     def search(self, query: str, k: int = 4) -> list[tuple[Chunk, float]]:
         """Top-k chunks by cosine similarity to `query`, best first."""
-        if not query.strip() or not self.chunks:
+        if k <= 0 or not query.strip() or not self.chunks:
             return []
         q = _unit(self._encode([query])[0])
+        if any(len(vector) != len(q) for vector in self._vectors):
+            raise ValueError("Query and chunk embeddings must have matching dimensions")
         scored = []
         for chunk, vector in zip(self.chunks, self._vectors):
             score = sum(a * b for a, b in zip(q, vector))
