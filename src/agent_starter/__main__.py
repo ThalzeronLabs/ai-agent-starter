@@ -66,4 +66,3 @@ def main(argv: list[str] | None = None, client: anthropic.Anthropic | None = Non
 
 if __name__ == "__main__":
     sys.exit(main())
-

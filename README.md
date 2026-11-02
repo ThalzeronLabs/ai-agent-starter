@@ -77,6 +77,7 @@ python -m agent_starter --docs path/to/your/handbook "What is the vacation polic
 | `--cache / --no-cache` | cache | Prompt caching (see [Prompt caching](#prompt-caching)). |
 | `--effort low…max` | `medium` | Trades depth for cost. |
 | `--show-tools`, `--show-usage` | off | Print the tools used, and token usage including cache reads/writes (to stderr). |
+| `--max-chars N` | `900` | Soft chunk size (minimum 100). Also accepted by `agent_starter.evals` and `agent_starter.mcp_server`. Changing it changes the citation tags; the bundled evaluation cases assume 900. |
 
 ### Streaming
 
@@ -217,6 +218,3 @@ in [CHANGELOG.md](CHANGELOG.md).
 ## License
 
 Apache-2.0 © Esdras Souza (Thalzeron Labs). The example documents describe a fictional company.
-
-
-All three entry points accept `--max-chars N` (default 900, minimum 100). This is a soft paragraph-packing limit. Changing it changes citation tags; the bundled evaluation cases assume 900.
