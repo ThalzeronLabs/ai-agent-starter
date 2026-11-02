@@ -1,0 +1,4 @@
+# Store every text file with LF line endings in the repository, whatever the contributor's OS
+# (a PR once arrived with CRLF and showed every line as changed).
+* text=auto
+*.sh text eol=lf
