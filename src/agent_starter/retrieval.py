@@ -145,6 +145,8 @@ class BM25Index:
 
     def search(self, query: str, k: int = 4) -> list[tuple[Chunk, float]]:
         """Top-k chunks for `query`, best first. Chunks that share no term with the query are never returned."""
+        if k <= 0:
+            return []
         query_terms = tokenize(query)
         if not query_terms or not self.chunks:
             return []

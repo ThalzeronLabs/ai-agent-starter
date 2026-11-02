@@ -25,10 +25,13 @@ def main(argv: list[str] | None = None, client: anthropic.Anthropic | None = Non
                         help="Use prompt caching (default) or not (--no-cache).")
     parser.add_argument("--show-tools", action="store_true", help="Print which tools the agent used.")
     parser.add_argument("--show-usage", action="store_true", help="Print token usage, including cache reads/writes.")
+    parser.add_argument("--max-chars", type=int, default=900, help="Soft chunk size (minimum 100). Evaluation citation tags assume the default 900.")
     args = parser.parse_args(argv)
+    if args.max_chars < 100:
+        parser.error("--max-chars must be at least 100")
 
     try:
-        index = build_retriever(args.docs, args.retriever)
+        index = build_retriever(args.docs, args.retriever, max_chars=args.max_chars)
     except (FileNotFoundError, ImportError) as error:
         print(error, file=sys.stderr)
         return 2

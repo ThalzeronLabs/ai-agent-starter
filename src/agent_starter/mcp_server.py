@@ -72,9 +72,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent_starter.mcp_server", description="Serve document tools over MCP (stdio).")
     parser.add_argument("--docs", default="docs-example", help="Folder with .md/.txt/.rst files (default: docs-example).")
     parser.add_argument("--retriever", default="bm25", choices=RETRIEVERS, help="Search backend (default: bm25).")
+    parser.add_argument("--max-chars", type=int, default=900, help="Soft chunk size (minimum 100). Evaluation citation tags assume the default 900.")
     args = parser.parse_args(argv)
+    if args.max_chars < 100:
+        parser.error("--max-chars must be at least 100")
 
-    index = build_retriever(Path(args.docs), args.retriever)
+    index = build_retriever(Path(args.docs), args.retriever, max_chars=args.max_chars)
     # stdout carries the MCP protocol over stdio, so diagnostics go to stderr.
     print(f"Serving {len(index.documents)} documents ({len(index.chunks)} chunks) over MCP stdio.", file=sys.stderr)
     create_server(index).run("stdio")
