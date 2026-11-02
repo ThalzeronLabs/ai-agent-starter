@@ -163,4 +163,3 @@ class BM25Index:
                 scored.append((self.chunks[i], score))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return scored[:k]
-
