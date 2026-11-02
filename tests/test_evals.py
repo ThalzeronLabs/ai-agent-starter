@@ -130,4 +130,3 @@ def test_eval_cli_exit_codes(capsys):
     assert "Below threshold" in capsys.readouterr().err
     assert main([*args, "--json"]) == 0
     assert '"summary"' in capsys.readouterr().out
-
