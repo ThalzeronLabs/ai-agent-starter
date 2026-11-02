@@ -217,3 +217,6 @@ in [CHANGELOG.md](CHANGELOG.md).
 ## License
 
 Apache-2.0 © Esdras Souza (Thalzeron Labs). The example documents describe a fictional company.
+
+
+All three entry points accept `--max-chars N` (default 900, minimum 100). This is a soft paragraph-packing limit. Changing it changes citation tags; the bundled evaluation cases assume 900.
