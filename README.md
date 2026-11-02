@@ -1,4 +1,4 @@
-# agent-starter
+# ai-agent-starter
 
 [![CI](https://github.com/ThalzeronLabs/ai-agent-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/ThalzeronLabs/ai-agent-starter/actions/workflows/ci.yml)
 
@@ -61,6 +61,7 @@ pip install -e ".[embeddings]"      # + local embeddings (sentence-transformers;
 pip install -e ".[dev]"             # + pytest, build and mcp, to run the test suite
 ```
 
+The distribution is named `ai-agent-starter`; the Python package you import is `agent_starter`.
 Python 3.10+. Credentials come from `ANTHROPIC_API_KEY` or an `ant auth login` profile.
 
 ## CLI

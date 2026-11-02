@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-starter"
+name = "ai-agent-starter"
 dynamic = ["version"]
 description = "A small, tested starter for document-grounded Claude agents (RAG + tool use)."
 readme = "README.md"

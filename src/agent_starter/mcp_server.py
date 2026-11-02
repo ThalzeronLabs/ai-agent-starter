@@ -2,7 +2,7 @@
 
 Install the extra and point your MCP client (Claude Code, Claude Desktop, an IDE, ...) at it over stdio:
 
-    pip install "agent-starter[mcp]"
+    pip install "ai-agent-starter[mcp]"
     python -m agent_starter.mcp_server --docs ./docs-example
 
 The tool names, descriptions and behavior are the same ones the built-in agent uses, so a document folder can be
@@ -21,7 +21,7 @@ try:
     from mcp.types import ToolAnnotations
     from pydantic import Field
 except ImportError as error:  # pragma: no cover - exercised only without the extra installed
-    raise ImportError('The MCP server needs the optional extra: pip install "agent-starter[mcp]"') from error
+    raise ImportError('The MCP server needs the optional extra: pip install "ai-agent-starter[mcp]"') from error
 
 from . import __version__
 from .retrieval import RETRIEVERS, Retriever, build_retriever

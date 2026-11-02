@@ -1,7 +1,7 @@
 """Optional dense retrieval: a local embedding model behind the same `Retriever` protocol as `BM25Index`.
 
 Nothing here calls a paid API. By default the vectors come from a sentence-transformers model that runs on your
-machine (``pip install "agent-starter[embeddings]"``; the model is downloaded once from Hugging Face and cached).
+machine (``pip install "ai-agent-starter[embeddings]"``; the model is downloaded once from Hugging Face and cached).
 Any other encoder works too: pass a function that maps a list of strings to a list of vectors.
 
 Search is brute-force cosine similarity in pure Python, which is plenty for a few thousand chunks. For more than
@@ -31,7 +31,7 @@ def sentence_transformers_encoder(model_name: str = DEFAULT_EMBEDDING_MODEL) -> 
         from sentence_transformers import SentenceTransformer
     except ImportError as error:  # pragma: no cover - exercised only without the extra installed
         raise ImportError(
-            'Embeddings need the optional extra: pip install "agent-starter[embeddings]"'
+            'Embeddings need the optional extra: pip install "ai-agent-starter[embeddings]"'
         ) from error
     model = SentenceTransformer(model_name)
 

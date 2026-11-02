@@ -5,7 +5,7 @@ Everything the agent needs from retrieval is the small `Retriever` protocol belo
 before embeddings). It needs no API key, no vector database and no GPU, ranks well on technical docs where exact
 terms matter, and is fully deterministic, which makes the whole agent testable offline.
 
-`agent_starter.embeddings.EmbeddingIndex` is an optional, local alternative (``pip install "agent-starter[embeddings]"``)
+`agent_starter.embeddings.EmbeddingIndex` is an optional, local alternative (``pip install "ai-agent-starter[embeddings]"``)
 that implements the same protocol; `build_retriever` picks one by name.
 """
 

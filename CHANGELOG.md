@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- Rename the distribution to `ai-agent-starter` (the name `agent-starter` is taken on PyPI). The import name
+  `agent_starter` and the `agent-starter`, `agent-starter-mcp` and `agent-starter-eval` commands are unchanged.
 - Cache chunk embeddings on disk when a stable encoder identity is available.
 - Expose the soft chunk size through all three command-line entry points.
 - Add repeatable evaluation case selection and Markdown reports.
