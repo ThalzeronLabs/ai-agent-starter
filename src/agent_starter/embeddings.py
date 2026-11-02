@@ -87,4 +87,3 @@ class EmbeddingIndex:
                 scored.append((chunk, score))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return scored[:k]
-
