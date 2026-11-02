@@ -14,6 +14,50 @@ DOCS = Path(__file__).resolve().parents[1] / "docs-example"
 DIM = 256
 
 
+def test_cache_reuses_only_unchanged_chunks(tmp_path):
+    calls = []
+
+    def encoder(texts):
+        calls.append(list(texts))
+        return hashing_encoder(texts)
+
+    docs = {"a.md": "# First\n\nalpha", "b.md": "# Second\n\nbeta"}
+    kwargs = dict(encoder=encoder, cache_dir=tmp_path, cache_key="hash-v1")
+    first = EmbeddingIndex(docs, **kwargs)
+    second = EmbeddingIndex(docs, **kwargs)
+    assert len(calls) == 1
+    assert first._vectors == second._vectors
+    EmbeddingIndex({**docs, "b.md": "# Second\n\ngamma"}, **kwargs)
+    assert calls[-1] == ["Second\ngamma"]
+    assert len(calls) == 2
+    EmbeddingIndex(docs, **{**kwargs, "cache_key": "hash-v2"})
+    assert len(calls[-1]) == 2
+
+
+def test_injected_encoder_without_identity_is_not_cached(tmp_path):
+    calls = []
+    def encoder(texts):
+        calls.append(list(texts))
+        return hashing_encoder(texts)
+    for _ in range(2):
+        EmbeddingIndex({"a.md": "alpha"}, encoder=encoder, cache_dir=tmp_path)
+    assert len(calls) == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_damaged_cache_is_rebuilt(tmp_path):
+    calls = []
+    def encoder(texts):
+        calls.append(list(texts))
+        return hashing_encoder(texts)
+    kwargs = dict(encoder=encoder, cache_dir=tmp_path, cache_key="v1")
+    first = EmbeddingIndex({"a.md": "alpha"}, **kwargs)
+    next(tmp_path.glob("*.json")).write_text("broken", encoding="utf-8")
+    second = EmbeddingIndex({"a.md": "alpha"}, **kwargs)
+    assert len(calls) == 2
+    assert first._vectors == second._vectors
+
+
 def hashing_encoder(texts):
     """Bag-of-words hashed into a fixed-size vector: crude, but deterministic and dependency-free."""
     vectors = []
@@ -76,3 +120,4 @@ def test_build_retriever_selects_by_name():
     assert isinstance(build_retriever(DOCS, "embeddings", encoder=hashing_encoder), EmbeddingIndex)
     with pytest.raises(ValueError, match="Unknown retriever"):
         build_retriever(DOCS, "nope")
+
