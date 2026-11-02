@@ -222,26 +222,33 @@ For each case it scores:
   (with typed tags, which cannot say this, grounding falls back to support);
 - **facts**: the share of expected facts in the answer.
 
-A case passes when all of these hold. Not-covered cases are mandatory: if any of them cites something, the run fails
-whatever the thresholds. Otherwise it exits non-zero below `--min-pass-rate` (default 0), `--min-recall` (0.9),
+A case passes when all of these hold. The report shows each case's citation **mode**: `native`, `tags` (typed
+`[source#n]`, scored by the fallback) or `none`. Two rules fail the run whatever the thresholds: a not-covered case
+that cites anything, and a covered case answered without native citations, since the tag fallback cannot check
+claims and would hide that regression (`--allow-tags` lifts the second rule for clients that cannot return native
+citations). Otherwise it exits non-zero below `--min-pass-rate` (default 0), `--min-recall` (0.9),
 `--min-precision` (0.8), `--min-supported` (0.9) or `--min-grounded` (0.9). **CI runs it with `--min-pass-rate 1.0`:
 every case must pass.**
 
-Offline, the answers come from `fakes.ExtractiveClient`, a deterministic stand-in that really calls `search_docs`,
+**The offline run is a baseline of the pipeline, not a score of the agent.** Its answers come from
+`fakes.ExtractiveClient`, a deterministic stand-in that really calls `search_docs`,
 answers with the best sentence of the first passage that contains at least half of the question's terms, and
 attaches a native citation in the API's format. When no passage does, it answers "not covered" and cites nothing;
-that rule stands in for the judgment a model makes when it reads the results. It is not a language model: it
-measures the retrieval, the tools and the citation pipeline, so a regression there fails CI.
+that rule stands in for the judgment a model makes when it reads the results. It is not a language model, and its
+rule was tuned on these same 14 cases, so a perfect result is expected by construction. What it does show is that
+retrieval, the tools and the citation pipeline still work end to end: a regression there fails CI.
+
+Pipeline baseline (offline stand-in, not a score of the agent):
 
 | Retriever | Pass | Precision | Recall | Supported | Grounded |
 |---|---|---|---|---|---|
 | BM25 (CI) | 14/14 | 1.00 | 1.00 | 1.00 | 1.00 |
 | Local embeddings (MiniLM, run locally) | 14/14 | 1.00 | 1.00 | 1.00 | 1.00 |
 
-Before native citations, this table read 13/14 for both: the BM25 run cited `security.md#1` for the dark-mode
-question because "app" matches "authenticator app". The coverage rule fixes that without changing retrieval. It was
-chosen on these 14 cases, so treat it as a baseline, not a benchmark: a `--live` run measures what Claude does with
-the same results. Add your own cases next to your own documents.
+Before native citations, this baseline read 13/14 for both: the BM25 run cited `security.md#1` for the dark-mode
+question because "app" matches "authenticator app". The coverage rule fixes that without changing retrieval. Only a
+`--live` run scores the agent itself, on what Claude does with the same results; no live score is published here yet.
+Add your own cases next to your own documents.
 
 ## Tests
 
@@ -249,7 +256,7 @@ the same results. Add your own cases next to your own documents.
 pytest
 ```
 
-94 tests run offline: tokenization, chunking, BM25, the embedding adapter (with a hashing encoder), every tool and
+98 tests run offline: tokenization, chunking, BM25, the embedding adapter (with a hashing encoder), every tool and
 the calculator's sandbox, the generated tool schemas, the `search_result` blocks and native citations, the agent loop
 with and without streaming, prompt-caching and usage plumbing, the CLI, the README's offline output, the real SDK
 against a local HTTP mock, the MCP server (in-process and over stdio, through a real MCP client), and the evaluator

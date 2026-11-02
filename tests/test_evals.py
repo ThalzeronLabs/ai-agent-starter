@@ -30,7 +30,7 @@ def test_selected_cases_and_markdown(capsys):
     assert [result["id"] for result in report["results"]] == [selected]
     assert report["summary"]["cases"] == 1
     main([*args, "--only", selected, "--markdown"])
-    assert "| case | pass | P | R | cited |" in capsys.readouterr().out
+    assert "| case | pass | mode | P | R | cited |" in capsys.readouterr().out
     with pytest.raises(SystemExit) as error:
         main([*args, "--only", "unknown"])
     assert error.value.code == 2
@@ -196,3 +196,82 @@ def test_min_pass_rate_is_enforced(capsys):
     args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example")]
     assert main([*args, "--min-pass-rate", "1.0"]) == 0
     capsys.readouterr()
+
+
+# --- the typed-tag fallback must not hide a regression ----------------------------------------------------------
+
+
+import anthropic as _anthropic  # noqa: E402
+
+_REAL_ANTHROPIC = _anthropic.Anthropic
+
+
+def _real_sdk_client(final_text):
+    """The real Anthropic SDK with a local mock of the HTTP API: it searches once, then answers `final_text`
+    with no native citations. No network and no credential are used."""
+    import json as _json
+
+    import anthropic
+    import httpx2
+
+    usage = {"input_tokens": 1, "output_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+
+    def handler(request):
+        body = _json.loads(request.content)
+        answered = any(isinstance(block, dict) and block.get("type") == "tool_result"
+                       for message in body["messages"] if isinstance(message.get("content"), list)
+                       for block in message["content"])
+        content = ([{"type": "text", "text": final_text}] if answered else
+                   [{"type": "tool_use", "id": "toolu_1", "name": "search_docs", "input": {"query": "data"}}])
+        return httpx2.Response(200, json={
+            "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": content,
+            "stop_reason": "end_turn" if answered else "tool_use", "stop_sequence": None, "usage": usage})
+
+    transport = httpx2.MockTransport(handler)
+    return _REAL_ANTHROPIC(api_key="offline-placeholder", max_retries=0,
+                           http_client=anthropic.DefaultHttpxClient(transport=transport))
+
+
+def _live_main(monkeypatch, final_text, *extra):
+    import anthropic
+
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: _real_sdk_client(final_text))
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example"),
+            "--only", "data-location", "--live"]
+    return main([*args, *extra])
+
+
+def test_a_real_client_answering_with_typed_tags_fails_the_run(monkeypatch, capsys):
+    tagged = "Data is stored in the European Union (Frankfurt) by default [security.md#2]."
+    assert _live_main(monkeypatch, tagged) == 1
+    out, err = capsys.readouterr()
+    assert "Live run: claude-opus-5-5" in out and " tags " in out
+    assert "answered without native citations: data-location" in err
+    # The fallback still scores it when asked to, and then this answer is fine.
+    assert _live_main(monkeypatch, tagged, "--allow-tags") == 0
+
+
+def test_a_real_client_answering_without_any_citation_fails_the_run(monkeypatch, capsys):
+    assert _live_main(monkeypatch, "It is stored in Frankfurt.") == 1
+    assert "answered without native citations: data-location" in capsys.readouterr().err
+
+
+def test_an_offline_client_that_falls_back_to_tags_fails_too(monkeypatch, capsys):
+    import agent_starter.fakes as fakes
+    from agent_starter.fakes import ScriptedClient, message, text_block
+
+    answer = message(text_block("Data is stored in the European Union (Frankfurt) by default [security.md#2]."))
+    monkeypatch.setattr(fakes, "ExtractiveClient", lambda: ScriptedClient([answer]))
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example"), "--only", "data-location"]
+    assert main(args) == 1
+    assert "answered without native citations" in capsys.readouterr().err
+
+
+def test_the_offline_report_is_labelled_a_pipeline_baseline(capsys):
+    import json as _json
+
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example")]
+    assert main(args) == 0
+    assert capsys.readouterr().out.startswith("Pipeline baseline (offline stand-in, not a score of the agent)")
+    assert main([*args, "--json"]) == 0
+    assert _json.loads(capsys.readouterr().out)["kind"] == "pipeline-baseline"

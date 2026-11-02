@@ -24,6 +24,14 @@ text. It scores:
 A not-covered case (`expected_citations: []`) passes only if the answer cites nothing. Those cases are mandatory:
 the run fails if any of them fails, whatever the thresholds.
 
+Native citations are required too: the report shows each case's citation `mode` (native, tags or none), and the
+run fails if a case the documents cover is answered without native citations, because the typed-tag fallback cannot
+check claims and would hide that regression. `--allow-tags` lifts this for clients that cannot return them.
+
+What the offline run measures: its answers come from a deterministic stand-in whose not-covered rule was tuned on
+these cases, so its result is a baseline for the retrieval, tools and citation pipeline, not a score of the agent.
+Only a `--live` run measures the agent.
+
 Run it offline (the default; deterministic `ExtractiveClient`, no key, used in CI) or against the real API:
 
     python -m agent_starter.evals                    # offline, BM25, fails below the thresholds
@@ -102,6 +110,11 @@ class EvalReport:
             "grounded": self._mean([float(x.grounded) for x in r]),
             "facts": self._mean([x.facts for x in r]),
         }
+
+    @property
+    def non_native(self) -> list[str]:
+        """IDs of covered cases answered without native citations (typed tags or none at all)."""
+        return [x.id for x in self.results if not x.not_covered and x.mode != "native"]
 
     @property
     def failed_not_covered(self) -> list[str]:
@@ -190,21 +203,26 @@ def run_eval(cases: list[EvalCase], index: Retriever, client, **ask_kwargs) -> E
     return EvalReport(results)
 
 
-def format_report(report: EvalReport, markdown: bool = False) -> str:
+OFFLINE_TITLE = "Pipeline baseline (offline stand-in, not a score of the agent)"
+
+
+def format_report(report: EvalReport, markdown: bool = False, title: str | None = None) -> str:
     if markdown:
         def cell(value: str) -> str:
             return value.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
 
-        lines = ["| case | pass | P | R | cited |", "| --- | --- | --- | --- | --- |"]
+        lines = [f"**{cell(title)}**", ""] if title else []
+        lines += ["| case | pass | mode | P | R | cited |", "| --- | --- | --- | --- | --- | --- |"]
         for r in report.results:
-            lines.append(f"| {cell(r.id)} | {'ok' if r.passed else 'FAIL'} | {r.precision:.2f} | {r.recall:.2f} | {cell(', '.join(r.cited) or '-')} |")
+            lines.append(f"| {cell(r.id)} | {'ok' if r.passed else 'FAIL'} | {r.mode} | {r.precision:.2f} | {r.recall:.2f} | {cell(', '.join(r.cited) or '-')} |")
         lines += ["", "| metric | value |", "| --- | --- |"]
         lines += [f"| {name} | {value:.2f} |" for name, value in report.summary.items()]
         return "\n".join(lines)
-    lines = [f"{'case':<28} {'pass':<5} {'P':>5} {'R':>5}  cited"]
+    lines = [title, ""] if title else []
+    lines.append(f"{'case':<28} {'pass':<5} {'mode':<7} {'P':>5} {'R':>5}  cited")
     for r in report.results:
         mark = "ok" if r.passed else "FAIL"
-        lines.append(f"{r.id:<28} {mark:<5} {r.precision:>5.2f} {r.recall:>5.2f}  {', '.join(r.cited) or '-'}")
+        lines.append(f"{r.id:<28} {mark:<5} {r.mode:<7} {r.precision:>5.2f} {r.recall:>5.2f}  {', '.join(r.cited) or '-'}")
     lines.append("")
     lines += [f"{name}: {value:.2f}" if isinstance(value, float) else f"{name}: {value}"
               for name, value in report.summary.items()]
@@ -225,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Fail below this share of answers whose facts are quoted by their own citations.")
     parser.add_argument("--min-pass-rate", type=float, default=0.0,
                         help="Fail below this share of fully passing cases (CI uses 1.0).")
+    parser.add_argument("--allow-tags", action="store_true",
+                        help="Do not fail when covered cases are answered without native citations (typed tags).")
     parser.add_argument("--only", action="append", default=[], metavar="ID", help="Run only this case ID (repeatable).")
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print the full report as JSON.")
@@ -246,16 +266,19 @@ def main(argv: list[str] | None = None) -> int:
         import anthropic
 
         client, kwargs = anthropic.Anthropic(), {"model": args.model}
+        title = f"Live run: {args.model}"
     else:
         from .fakes import ExtractiveClient
 
         client, kwargs = ExtractiveClient(), {}
+        title = OFFLINE_TITLE
     report = run_eval(cases, index, client, **kwargs)
 
     if args.json:
-        print(json.dumps({"summary": report.summary, "results": [asdict(r) for r in report.results]}, indent=2))
+        print(json.dumps({"kind": "live" if args.live else "pipeline-baseline", "title": title,
+                          "summary": report.summary, "results": [asdict(r) for r in report.results]}, indent=2))
     else:
-        print(format_report(report, markdown=args.markdown))
+        print(format_report(report, markdown=args.markdown, title=title))
 
     summary = report.summary
     failures = [
@@ -271,6 +294,8 @@ def main(argv: list[str] | None = None) -> int:
     ]
     if report.failed_not_covered:
         failures.append("not-covered cases cited something: " + ", ".join(report.failed_not_covered))
+    if report.non_native and not args.allow_tags:
+        failures.append("answered without native citations: " + ", ".join(report.non_native))
     if failures:
         print("Below threshold: " + "; ".join(failures), file=sys.stderr)
         return 1

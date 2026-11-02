@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
 - Evaluation: native `cited_text` must be text of the cited chunk (`valid`), and each expected fact must be quoted by
   the citation attached to the sentence that states it (`grounded`, new `--min-grounded`). New `--min-pass-rate`;
   not-covered cases are mandatory and fail the run if they cite anything. CI runs with `--min-pass-rate 1.0`.
+- Evaluation: the report shows each case's citation mode (native, tags or none), and a covered case answered without
+  native citations fails the run, for the offline stand-in and for real clients alike (`--allow-tags` to opt out).
+  Offline reports are titled "Pipeline baseline (offline stand-in, not a score of the agent)"; JSON output has `kind`.
 - `--offline` CLI flag: answers with the deterministic extractive stand-in, no API key needed.
 - Tests: the real SDK against a local HTTP mock (request and streamed citations), and a check that the README's
   offline output block is the real output.
@@ -24,8 +27,9 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The offline stand-in (`fakes.ExtractiveClient`) answers only from a passage containing at least half of the
-  question's terms and otherwise says "not covered" with no citation. All 14 evaluation cases now pass with BM25 and
-  with local embeddings (previously 13/14 each).
+  question's terms and otherwise says "not covered" with no citation. The offline pipeline baseline now passes all 14
+  cases with BM25 and with local embeddings (previously 13/14 each). The rule was tuned on these cases, so this is a
+  baseline of the pipeline, not a score of the agent.
 - The system prompt no longer asks for typed `[source#n]` tags; typed tags are still scored as a fallback.
 - Rename the distribution to `ai-agent-starter` (the name `agent-starter` is taken on PyPI). The import name
   `agent_starter` and the `agent-starter`, `agent-starter-mcp` and `agent-starter-eval` commands are unchanged.
