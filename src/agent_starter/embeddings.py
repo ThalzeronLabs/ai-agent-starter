@@ -78,6 +78,8 @@ class EmbeddingIndex:
         if not query.strip() or not self.chunks:
             return []
         q = _unit(self._encode([query])[0])
+        if any(len(vector) != len(q) for vector in self._vectors):
+            raise ValueError("Query and chunk embeddings must have matching dimensions")
         scored = []
         for chunk, vector in zip(self.chunks, self._vectors):
             score = sum(a * b for a, b in zip(q, vector))
@@ -85,3 +87,4 @@ class EmbeddingIndex:
                 scored.append((chunk, score))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return scored[:k]
+
