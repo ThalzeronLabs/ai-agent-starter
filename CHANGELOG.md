@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 - Reject query/chunk embedding dimension mismatches instead of truncating similarity calculations.
+- Return no passages for non-positive search limits.
 
 ## [0.1.0] - 2026-11-02
 
@@ -36,4 +37,3 @@ First tagged release. Not published on PyPI: install from a clone or from the re
 
 [Unreleased]: https://github.com/ThalzeronLabs/ai-agent-starter/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/ThalzeronLabs/ai-agent-starter/releases/tag/v0.1.0
-
