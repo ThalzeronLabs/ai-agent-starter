@@ -120,4 +120,3 @@ def test_build_retriever_selects_by_name():
     assert isinstance(build_retriever(DOCS, "embeddings", encoder=hashing_encoder), EmbeddingIndex)
     with pytest.raises(ValueError, match="Unknown retriever"):
         build_retriever(DOCS, "nope")
-
