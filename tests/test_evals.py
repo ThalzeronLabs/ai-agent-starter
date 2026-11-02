@@ -20,6 +20,23 @@ CASES = load_cases(ROOT / "evals" / "cases.jsonl")
 CASE = EvalCase("t", "Where is data stored?", ["security.md#2"], ["Frankfurt"])
 
 
+def test_selected_cases_and_markdown(capsys):
+    import json
+
+    args = ["--cases", str(ROOT / "evals/cases.jsonl"), "--docs", str(ROOT / "docs-example")]
+    selected = CASES[0].id
+    assert main([*args, "--only", selected, "--json", "--min-recall", "0", "--min-precision", "0"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert [result["id"] for result in report["results"]] == [selected]
+    assert report["summary"]["cases"] == 1
+    main([*args, "--only", selected, "--markdown"])
+    assert "| case | pass | P | R | cited |" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as error:
+        main([*args, "--only", "unknown"])
+    assert error.value.code == 2
+    assert "Valid IDs:" in capsys.readouterr().err
+
+
 # --- the case file itself --------------------------------------------------------------------------------------
 
 
