@@ -51,3 +51,13 @@ def test_cli_missing_folder_exits_2(capsys):
 def test_cli_end_to_end_with_the_extractive_fake(capsys):
     assert main(["--docs", DOCS, "Where is my data stored by default?"], client=ExtractiveClient()) == 0
     assert "Frankfurt" in capsys.readouterr().out
+
+
+def test_cli_prints_footnotes_and_sources_the_same_way_with_and_without_streaming(capsys):
+    question = "Where is my data stored by default?"
+    assert main(["--docs", DOCS, question], client=ExtractiveClient()) == 0
+    streamed = capsys.readouterr().out
+    assert main(["--docs", DOCS, "--no-stream", question], client=ExtractiveClient()) == 0
+    assert capsys.readouterr().out == streamed
+    assert streamed.splitlines()[0].endswith("by default.[1]")
+    assert '[1] security.md#2 (Data location): "Data is stored in the European Union (Frankfurt) by default."' in streamed

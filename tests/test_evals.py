@@ -130,3 +130,69 @@ def test_eval_cli_exit_codes(capsys):
     assert "Below threshold" in capsys.readouterr().err
     assert main([*args, "--json"]) == 0
     assert '"summary"' in capsys.readouterr().out
+
+
+# --- native citations: verifiable, claim by claim ----------------------------------------------------------------
+
+from agent_starter.citations import AnswerPart, Citation  # noqa: E402
+
+MONTHLY = EvalCase("monthly", "Are monthly plans refunded within 14 days?", ["refunds.md#1"], ["14 days"])
+NOT_REFUNDED = "Monthly plans are not refunded, because you can cancel before the next charge."
+WINDOW_TEXT = "Annual plans can be refunded in full within 14 days of purchase or renewal."
+
+
+def test_a_claim_that_contradicts_its_own_citation_is_caught_only_by_native_citations():
+    claim = "Monthly plans are refunded within 14 days"
+    # Typed tag: the tag names the right chunk and "14 days" is somewhere in it, so the old check lets it pass.
+    tagged = score_case(MONTHLY, f"{claim} [refunds.md#1].", INDEX)
+    assert tagged.mode == "tags" and tagged.supported and tagged.passed
+    # Native citation: the API says which sentence backs the claim, and that sentence does not say "14 days".
+    parts = [AnswerPart(claim, (Citation("refunds.md#1", "Refund window", NOT_REFUNDED),)), AnswerPart(".")]
+    native = score_case(MONTHLY, claim + ".", INDEX, parts)
+    assert native.mode == "native" and native.valid and native.supported
+    assert not native.grounded and not native.passed
+
+
+def test_a_claim_quoted_by_its_own_citation_is_grounded():
+    parts = [AnswerPart("Annual plans: within 14 days", (Citation("refunds.md#1", "Refund window", WINDOW_TEXT),))]
+    result = score_case(MONTHLY, parts[0].text, INDEX, parts)
+    assert result.grounded and result.passed
+
+
+def test_a_quote_the_document_does_not_contain_is_invalid():
+    fake_quote = Citation("refunds.md#1", "Refund window", "Monthly plans are refunded within 14 days.")
+    result = score_case(MONTHLY, "Within 14 days.", INDEX, [AnswerPart("Within 14 days.", (fake_quote,))])
+    assert not result.valid and not result.passed
+
+
+def test_the_offline_run_passes_every_case_with_native_citations():
+    report = run_eval(CASES, INDEX, ExtractiveClient())
+    assert report.summary["pass_rate"] == 1.0
+    assert report.summary["grounded"] == 1.0
+    assert {r.mode for r in report.results if r.expected_citations} == {"native"}
+    assert report.failed_not_covered == []
+
+
+def test_the_fake_says_not_covered_when_no_passage_covers_the_question():
+    from agent_starter.agent import ask
+    from agent_starter.fakes import NOT_COVERED
+
+    result = ask("Is there a dark mode in the iOS app?", INDEX, client=ExtractiveClient())
+    assert result.answer == NOT_COVERED and result.citations == []
+
+
+def test_a_not_covered_case_that_cites_fails_the_run_whatever_the_thresholds(monkeypatch, capsys):
+    import agent_starter.fakes as fakes
+
+    # A "model" that never declines: it cites the best lexical match even for questions the docs don't cover.
+    monkeypatch.setattr(fakes, "ExtractiveClient", lambda: ExtractiveClient(min_coverage=0.0))
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example")]
+    zero = ["--min-recall", "0", "--min-precision", "0", "--min-supported", "0", "--min-grounded", "0"]
+    assert main([*args, *zero]) == 1
+    assert "not-covered cases cited something: not-covered-dark-mode" in capsys.readouterr().err
+
+
+def test_min_pass_rate_is_enforced(capsys):
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example")]
+    assert main([*args, "--min-pass-rate", "1.0"]) == 0
+    capsys.readouterr()

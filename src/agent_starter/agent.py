@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 import anthropic
 
+from .citations import AnswerPart, Citation, citations_of, parts_of, unique_citations
 from .retrieval import Retriever
 from .tools import build_tools
 
@@ -15,8 +16,9 @@ DEFAULT_MODEL = "claude-opus-5-5"
 SYSTEM_PROMPT = """You answer questions using the user's documents, which you can search with tools.
 
 - Search before answering. If the first search is not enough, search again with other words or read the document.
-- Base every factual statement on the passages you found and cite them inline with their tag, like [refunds.md#2].
-- If the documents do not cover the question, say so plainly instead of guessing.
+- Base every factual statement on the search results you found. Citations to them are attached to your answer
+  automatically, so do not write source tags yourself.
+- If no search result answers the question, say plainly that the documents do not cover it, and cite nothing.
 - Use the calculate tool for any arithmetic.
 - Answer in the language of the question, concisely."""
 
@@ -37,6 +39,13 @@ class AgentResult:
     model: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
     """Token usage summed over every model call of the run (see `USAGE_FIELDS`)."""
+    parts: list[AnswerPart] = field(default_factory=list)
+    """The final answer's text blocks with the native citations the API attached to each."""
+
+    @property
+    def citations(self) -> list[Citation]:
+        """Every citation in the answer, in order of first appearance, without duplicates."""
+        return unique_citations(self.parts)
 
     @property
     def refused(self) -> bool:
@@ -58,12 +67,14 @@ def ask(
     max_iterations: int = 8,
     stream: bool = False,
     on_text: Callable[[str], None] | None = None,
+    on_citations: Callable[[tuple[Citation, ...]], None] | None = None,
     cache: bool = True,
 ) -> AgentResult:
     """Runs the agent loop until Claude answers (or `max_iterations` model calls have been made).
 
-    With `stream=True`, every text delta is passed to `on_text` as it arrives (the CLI prints them), and the
-    result is the same `AgentResult` you get without streaming. `cache=False` turns prompt caching off.
+    With `stream=True`, every text delta is passed to `on_text` as it arrives, and when a text block that carries
+    citations is complete they are passed to `on_citations` (the CLI prints footnote markers). The result is the
+    same `AgentResult` you get without streaming. `cache=False` turns prompt caching off.
     """
     client = client or anthropic.Anthropic()
     options = {"stream": True} if stream else {}
@@ -88,10 +99,15 @@ def ask(
     last = None
     for item in runner:
         if stream:
-            # Each turn is a message stream: read its text as it arrives, then take the accumulated message.
-            for text in item.text_stream:
-                if on_text is not None:
-                    on_text(text)
+            # Each turn is a message stream: pass on text as it arrives and the citations of each finished text
+            # block, then take the accumulated message.
+            for event in item:
+                if event.type == "text" and on_text is not None:
+                    on_text(event.text)
+                elif event.type == "content_block_stop" and on_citations is not None:
+                    block = event.content_block
+                    if block.type == "text" and citations_of(block):
+                        on_citations(citations_of(block))
             item = item.get_final_message()
         last = item
         _add_usage(usage, item)
@@ -99,7 +115,9 @@ def ask(
 
     if last is None:
         return AgentResult(answer="", stop_reason=None, tool_calls=tool_calls, usage=usage)
+    model_name = getattr(last, "model", None)
     if last.stop_reason == "refusal":
-        return AgentResult("The request was declined.", "refusal", tool_calls, getattr(last, "model", None), usage)
-    text = "".join(block.text for block in last.content if block.type == "text").strip()
-    return AgentResult(text, last.stop_reason, tool_calls, getattr(last, "model", None), usage)
+        return AgentResult("The request was declined.", "refusal", tool_calls, model_name, usage)
+    parts = parts_of(last)
+    text = "".join(part.text for part in parts).strip()
+    return AgentResult(text, last.stop_reason, tool_calls, model_name, usage, parts)

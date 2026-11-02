@@ -8,13 +8,21 @@ A case file is JSON Lines, one case per line:
 question, in which case the answer must cite nothing). `expected_facts` are short strings that a correct answer
 contains (case-insensitive).
 
-For every case the evaluator asks the agent, extracts the `[source#n]` tags from the answer, and scores:
+For every case the evaluator asks the agent and reads the answer's citations: the native ones the API attaches
+(`search_result_location`, with the exact `cited_text`), or, when an answer has none, `[source#n]` tags typed in the
+text. It scores:
 
 - citation precision and recall against `expected_citations`;
-- validity: every cited tag names a chunk that exists in the index (no invented citations);
-- support: every expected fact appears in the answer *and* in the text of a cited chunk, i.e. the citation points
-  at a passage that really says it;
+- validity: every citation names a chunk that exists in the index, and every native `cited_text` is text that chunk
+  really contains (no invented citations, no invented quotes);
+- support: every expected fact appears in the answer *and* in the text of a cited chunk;
+- grounding: every expected fact appears in the `cited_text` of a citation attached to the very sentence that states
+  it. This is the check typed tags cannot give: a tag only says which chunk, so a claim that cites the right chunk
+  but contradicts it still passes. With tags, grounding falls back to support;
 - facts: the share of expected facts present in the answer.
+
+A not-covered case (`expected_citations: []`) passes only if the answer cites nothing. Those cases are mandatory:
+the run fails if any of them fails, whatever the thresholds.
 
 Run it offline (the default; deterministic `ExtractiveClient`, no key, used in CI) or against the real API:
 
@@ -33,6 +41,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .agent import DEFAULT_MODEL, ask
+from .citations import AnswerPart, normalize, unique_citations
 from .retrieval import RETRIEVERS, Retriever, build_retriever
 
 CITATION = re.compile(r"\[([^\[\]\s]+#\d+)\]")
@@ -60,10 +69,17 @@ class CaseResult:
     valid: bool
     supported: bool
     facts: float
+    grounded: bool = True
+    mode: str = "none"
+    """How the answer cited: "native" (API citations), "tags" (typed `[source#n]`) or "none"."""
+
+    @property
+    def not_covered(self) -> bool:
+        return not self.expected_citations
 
     @property
     def passed(self) -> bool:
-        return self.recall == 1.0 and self.valid and self.supported and self.facts == 1.0
+        return self.recall == 1.0 and self.valid and self.supported and self.grounded and self.facts == 1.0
 
 
 @dataclass
@@ -83,8 +99,14 @@ class EvalReport:
             "citation_recall": self._mean([x.recall for x in r]),
             "valid_citations": self._mean([float(x.valid) for x in r]),
             "supported": self._mean([float(x.supported) for x in r]),
+            "grounded": self._mean([float(x.grounded) for x in r]),
             "facts": self._mean([x.facts for x in r]),
         }
+
+    @property
+    def failed_not_covered(self) -> list[str]:
+        """IDs of not-covered cases that cited something (these always fail the run)."""
+        return [x.id for x in self.results if x.not_covered and not x.passed]
 
 
 def load_cases(path: str | Path) -> list[EvalCase]:
@@ -103,9 +125,20 @@ def extract_citations(answer: str) -> list[str]:
     return list(dict.fromkeys(CITATION.findall(answer)))
 
 
-def score_case(case: EvalCase, answer: str, index: Retriever) -> CaseResult:
+def score_case(case: EvalCase, answer: str, index: Retriever, parts: list[AnswerPart] | None = None) -> CaseResult:
+    """Scores one answer. Pass the agent's `parts` to use its native citations; without them, typed tags are read."""
     chunks = {chunk.ref: chunk for chunk in index.chunks}
-    cited = extract_citations(answer)
+    native = unique_citations(parts or [])
+    if native:
+        mode = "native"
+        cited = list(dict.fromkeys(citation.ref for citation in native))
+        valid = all(
+            c.ref in chunks and normalize(c.cited_text) in normalize(chunks[c.ref].text) for c in native
+        )
+    else:
+        cited = extract_citations(answer)
+        mode = "tags" if cited else "none"
+        valid = all(ref in chunks for ref in cited)
     expected = set(case.expected_citations)
     hits = expected & set(cited)
 
@@ -119,6 +152,18 @@ def score_case(case: EvalCase, answer: str, index: Retriever) -> CaseResult:
     cited_text = " ".join(chunks[ref].text.lower() for ref in cited if ref in chunks)
     facts_found = [fact for fact in case.expected_facts if fact.lower() in lowered]
     supported = all(fact.lower() in cited_text for fact in facts_found) and len(facts_found) == len(case.expected_facts)
+    if mode == "native":
+        # Each fact must be quoted by a citation attached to the very text block that states it.
+        grounded = supported and all(
+            any(
+                normalize(fact) in normalize(c.cited_text)
+                for part in parts if normalize(fact) in normalize(part.text)
+                for c in part.citations
+            )
+            for fact in facts_found
+        )
+    else:
+        grounded = supported
 
     return CaseResult(
         id=case.id,
@@ -128,9 +173,11 @@ def score_case(case: EvalCase, answer: str, index: Retriever) -> CaseResult:
         expected_citations=case.expected_citations,
         precision=precision,
         recall=recall,
-        valid=all(ref in chunks for ref in cited),
+        valid=valid,
         supported=supported,
         facts=len(facts_found) / len(case.expected_facts) if case.expected_facts else 1.0,
+        grounded=grounded,
+        mode=mode,
     )
 
 
@@ -139,7 +186,7 @@ def run_eval(cases: list[EvalCase], index: Retriever, client, **ask_kwargs) -> E
     results = []
     for case in cases:
         result = ask(case.question, index, client=client, **ask_kwargs)
-        results.append(score_case(case, result.answer, index))
+        results.append(score_case(case, result.answer, index, result.parts))
     return EvalReport(results)
 
 
@@ -174,6 +221,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-recall", type=float, default=0.9, help="Fail below this mean citation recall.")
     parser.add_argument("--min-precision", type=float, default=0.8, help="Fail below this mean citation precision.")
     parser.add_argument("--min-supported", type=float, default=0.9, help="Fail below this share of supported answers.")
+    parser.add_argument("--min-grounded", type=float, default=0.9,
+                        help="Fail below this share of answers whose facts are quoted by their own citations.")
+    parser.add_argument("--min-pass-rate", type=float, default=0.0,
+                        help="Fail below this share of fully passing cases (CI uses 1.0).")
     parser.add_argument("--only", action="append", default=[], metavar="ID", help="Run only this case ID (repeatable).")
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print the full report as JSON.")
@@ -213,9 +264,13 @@ def main(argv: list[str] | None = None) -> int:
             ("citation_recall", args.min_recall),
             ("citation_precision", args.min_precision),
             ("supported", args.min_supported),
+            ("grounded", args.min_grounded),
+            ("pass_rate", args.min_pass_rate),
         )
         if summary[name] < minimum
     ]
+    if report.failed_not_covered:
+        failures.append("not-covered cases cited something: " + ", ".join(report.failed_not_covered))
     if failures:
         print("Below threshold: " + "; ".join(failures), file=sys.stderr)
         return 1

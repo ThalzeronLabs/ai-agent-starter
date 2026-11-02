@@ -7,25 +7,50 @@ evaluation, an optional MCP server and optional local embeddings. Clone it, poin
 need.**
 
 Point it at a folder of Markdown/text files and ask questions. Claude searches the documents with tools, reads more
-when it needs to, does arithmetic with a safe calculator, and answers with inline citations like `[refunds.md#2]`,
-streamed to your terminal as it is written.
+when it needs to, does arithmetic with a safe calculator, and answers with **native, verifiable citations**: every
+cited sentence of the answer comes back from the API with the exact text of the document it relies on. Answers are
+streamed to your terminal as they are written.
 
 ```bash
 git clone https://github.com/ThalzeronLabs/ai-agent-starter && cd ai-agent-starter
 pip install -e ".[dev]"
-python -m agent_starter --docs docs-example --show-tools "Can I get my money back on a yearly Pro plan after 10 days?"
+python -m agent_starter --offline "Where is my data stored by default?"     # no API key needed
+python -m agent_starter --show-tools "Can I get my money back on a yearly Pro plan after 10 days?"
 ```
 
-Illustrative output (the exact wording varies from run to run):
+## Verifiable citations
 
-```
-Yes. Annual plans can be refunded in full within 14 days of purchase or renewal [refunds.md#1], and 10 days is
-inside that window. Email billing@northwind-notes.example with your account email and the charge date [refunds.md#2].
-Tools used: search_docs, search_docs
-```
+The search tools hand each passage to Claude as a `search_result` block, one text block per sentence. The API then
+attaches citations to the answer as data (`search_result_location`, with the exact `cited_text`), not as tags the
+model types, so code can check that each claim is quoted by its own citation and that the quote is in the document.
 
-Everything in this repository is tested **offline**: no API key, no network, no model download. Only the command
-above (and `--live` evaluations) call the Claude API.
+Real output of the offline mode. `--offline` answers with the deterministic extractive stand-in that the tests and CI
+use, not with Claude; Claude words its answers differently but returns citations in this same format:
+
+<!-- offline-output:start -->
+```
+$ python -m agent_starter --offline "Where is my data stored by default?"
+Data is stored in the European Union (Frankfurt) by default.[1]
+
+Sources:
+[1] security.md#2 (Data location): "Data is stored in the European Union (Frankfurt) by default."
+
+$ python -m agent_starter --offline "Is there a dark mode in the iOS app?"
+The documents do not cover this question.
+```
+<!-- offline-output:end -->
+
+`tests/test_readme.py` re-runs these commands and fails if this block differs from the real output.
+
+What this buys, as a test (`tests/test_evals.py::test_a_claim_that_contradicts_its_own_citation_is_caught_only_by_native_citations`):
+the answer "Monthly plans are refunded within 14 days" cites `refunds.md#1`. That chunk does contain "14 days" (for
+annual plans), so a typed tag `[refunds.md#1]` passes every check. The native citation shows that the claim rests on
+"Monthly plans are not refunded…", and the evaluator rejects it.
+
+Everything in this repository is tested **offline**: no API key, no network, no model download. Only real CLI runs
+and `--live` evaluations call the Claude API. Native citations follow the documented API and are tested through the
+real SDK against a local mock of the HTTP API (`tests/test_sdk_wire.py`), but have not yet been run against the live
+API from this repository.
 
 ## How it works
 
@@ -34,20 +59,22 @@ question ──▶ Claude (claude-opus-5-5, tool runner, streaming) ──▶ se
                        │   ▲                                      read_document      or local embeddings
                        │   └──────────── tool results ◀────────── calculate ──▶ safe AST arithmetic
                        ▼
-             answer with [source#chunk] citations          the same three tools ──▶ MCP server (optional)
+      answer + native citations (cited_text)        the same three tools ──▶ MCP server (optional)
 ```
 
 | Piece | File | Notes |
 |---|---|---|
 | Agent loop | `agent.py` | The official SDK's **tool runner** (`client.beta.messages.tool_runner`), streaming, prompt caching, refusal fallbacks. |
-| Tools | `tools.py` | Plain functions wrapped with `@beta_tool`, which builds the JSON schemas from type hints and docstrings. |
+| Tools | `tools.py` | Plain functions wrapped with `@beta_tool`, which builds the JSON schemas from type hints and docstrings. The search tools return `search_result` blocks. |
+| Citations | `citations.py` | Reads the API's `search_result_location` citations into `Citation(ref, title, cited_text)` and renders footnotes. |
 | Retrieval | `retrieval.py`, `embeddings.py` | A three-member `Retriever` protocol; BM25 (zero dependencies) and an optional local embedding adapter. |
 | MCP server | `mcp_server.py` | The same tools for any MCP client (Claude Code, Claude Desktop, IDEs). |
-| Evaluation | `evals.py`, `evals/cases.jsonl` | Checks that citations point at the passages that contain the answer. Runs in CI. |
+| Evaluation | `evals.py`, `evals/cases.jsonl` | Checks that each claim is quoted by its own citation and that unanswerable questions cite nothing. Gates CI. |
 | Offline fakes | `fakes.py` | Stand-ins for the Anthropic client used by tests and offline evals. |
 | CLI | `__main__.py` | `python -m agent_starter` / `agent-starter`. |
 
-- **Grounding:** the system prompt requires citations and an explicit "not covered" when the docs don't answer.
+- **Grounding:** answers cite search results natively, and the system prompt asks for an explicit "not covered",
+  with no citation, when no search result answers the question.
 - **Safety:** the calculator walks the Python AST and only allows numbers and arithmetic operators; no `eval`.
 - **Robustness:** refusals (`stop_reason == "refusal"`) are reported, with server-side fallbacks enabled
   (`fallbacks="default"`); auth and connection errors get clear CLI messages.
@@ -78,12 +105,14 @@ python -m agent_starter --docs path/to/your/handbook "What is the vacation polic
 | `--cache / --no-cache` | cache | Prompt caching (see [Prompt caching](#prompt-caching)). |
 | `--effort low…max` | `medium` | Trades depth for cost. |
 | `--show-tools`, `--show-usage` | off | Print the tools used, and token usage including cache reads/writes (to stderr). |
+| `--offline` | off | No API call: answer with the deterministic extractive stand-in (not a model), to try the pipeline without a key. |
 | `--max-chars N` | `900` | Soft chunk size (minimum 100). Also accepted by `agent_starter.evals` and `agent_starter.mcp_server`. Changing it changes the citation tags; the bundled evaluation cases assume 900. |
 
 ### Streaming
 
-With streaming on, the tool runner is called with `stream=True`; each turn of the loop is then a message stream whose
-`text_stream` is printed as it arrives, and `get_final_message()` gives the complete message for the loop
+With streaming on, the tool runner is called with `stream=True`; each turn of the loop is then a message stream.
+Its `text` events are printed as they arrive; when a text block ends (`content_block_stop`), its citations are passed
+on, so the CLI prints the footnote markers in place; `get_final_message()` gives the complete message for the loop
 (see the SDK's [tool runner docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-runner)).
 From Python:
 
@@ -92,10 +121,12 @@ from agent_starter import ask, build_retriever
 
 index = build_retriever("docs-example")
 result = ask("How do refunds work?", index, stream=True, on_text=lambda t: print(t, end="", flush=True))
-print("\n", result.tool_calls, result.usage)
+for citation in result.citations:
+    print(f"\n{citation.ref}: {citation.cited_text}")
 ```
 
-`ask()` returns the same `AgentResult` with or without streaming.
+`ask()` returns the same `AgentResult` with or without streaming: `answer`, `parts` (each text block with its
+citations), `citations`, `tool_calls` and `usage`.
 
 ### Prompt caching
 
@@ -182,21 +213,35 @@ python -m agent_starter.evals --retriever embeddings   # offline, local embeddin
 python -m agent_starter.evals --live                   # real Claude API: needs credentials, costs tokens
 ```
 
-For each case it scores citation **precision** and **recall**, **validity** (no invented tags), **support** (each
-expected fact is in a passage the answer cites) and **facts**; it exits non-zero below `--min-recall` (0.9),
-`--min-precision` (0.8) or `--min-supported` (0.9).
+For each case it scores:
 
-Offline, the answers come from `fakes.ExtractiveClient`, a deterministic stand-in that really calls `search_docs`
-and answers with the best sentence of the top passages. It is not a language model: it measures the retrieval, the
-tools and the citation plumbing, so a regression there fails CI. Current offline baseline on the 14 cases:
+- citation **precision** and **recall** against the expected chunks;
+- **validity**: every citation names a real chunk, and every native `cited_text` is text that chunk contains;
+- **support**: each expected fact is in a chunk the answer cites;
+- **grounding**: each expected fact is in the `cited_text` of the citation attached to the sentence that states it
+  (with typed tags, which cannot say this, grounding falls back to support);
+- **facts**: the share of expected facts in the answer.
 
-| Retriever | Pass | Precision | Recall | Supported | Fails |
+A case passes when all of these hold. Not-covered cases are mandatory: if any of them cites something, the run fails
+whatever the thresholds. Otherwise it exits non-zero below `--min-pass-rate` (default 0), `--min-recall` (0.9),
+`--min-precision` (0.8), `--min-supported` (0.9) or `--min-grounded` (0.9). **CI runs it with `--min-pass-rate 1.0`:
+every case must pass.**
+
+Offline, the answers come from `fakes.ExtractiveClient`, a deterministic stand-in that really calls `search_docs`,
+answers with the best sentence of the first passage that contains at least half of the question's terms, and
+attaches a native citation in the API's format. When no passage does, it answers "not covered" and cites nothing;
+that rule stands in for the judgment a model makes when it reads the results. It is not a language model: it
+measures the retrieval, the tools and the citation pipeline, so a regression there fails CI.
+
+| Retriever | Pass | Precision | Recall | Supported | Grounded |
 |---|---|---|---|---|---|
-| BM25 (CI) | 13/14 | 0.86 | 0.93 | 1.00 | `not-covered-dark-mode`: "app" matches "authenticator app" |
-| Local embeddings (MiniLM) | 13/14 | 0.82 | 0.93 | 1.00 | `not-covered-slack`: no passage falls below `min_score` |
+| BM25 (CI) | 14/14 | 1.00 | 1.00 | 1.00 | 1.00 |
+| Local embeddings (MiniLM, run locally) | 14/14 | 1.00 | 1.00 | 1.00 | 1.00 |
 
-The two misses are real retrieval behavior, left in on purpose: the not-covered cases are where a model's judgment
-matters, and a `--live` run measures that. Add your own cases next to your own documents.
+Before native citations, this table read 13/14 for both: the BM25 run cited `security.md#1` for the dark-mode
+question because "app" matches "authenticator app". The coverage rule fixes that without changing retrieval. It was
+chosen on these 14 cases, so treat it as a baseline, not a benchmark: a `--live` run measures what Claude does with
+the same results. Add your own cases next to your own documents.
 
 ## Tests
 
@@ -204,11 +249,12 @@ matters, and a `--live` run measures that. Add your own cases next to your own d
 pytest
 ```
 
-59 tests run offline: tokenization, chunking, BM25, the embedding adapter (with a hashing encoder), every tool and
-the calculator's sandbox, the generated tool schemas, the agent loop with and without streaming, prompt-caching and
-usage plumbing, the CLI, the MCP server (in-process and over stdio, through a real MCP client), and the evaluator and
-its case file. CI runs them on Python 3.10, 3.12 and 3.13, runs the offline evaluation, and builds and smoke-tests
-the wheel.
+94 tests run offline: tokenization, chunking, BM25, the embedding adapter (with a hashing encoder), every tool and
+the calculator's sandbox, the generated tool schemas, the `search_result` blocks and native citations, the agent loop
+with and without streaming, prompt-caching and usage plumbing, the CLI, the README's offline output, the real SDK
+against a local HTTP mock, the MCP server (in-process and over stdio, through a real MCP client), and the evaluator
+and its case file. CI runs them on Python 3.10, 3.12 and 3.13, runs the offline evaluation with every case required
+to pass, and builds and smoke-tests the wheel.
 
 ## Contributing
 

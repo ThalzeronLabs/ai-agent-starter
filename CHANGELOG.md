@@ -5,13 +5,41 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-- Rename the distribution to `ai-agent-starter` (the name `agent-starter` is taken on PyPI). The import name
-  `agent_starter` and the `agent-starter`, `agent-starter-mcp` and `agent-starter-eval` commands are unchanged.
+### Added
+
+- Native, verifiable citations. `search_docs` and `read_document` return `search_result` blocks (one text block per
+  sentence, citations enabled), and the agent reads the API's `search_result_location` citations into
+  `AgentResult.parts` / `AgentResult.citations` (`Citation(ref, title, cited_text)`, new module `citations.py`).
+  The CLI prints footnote markers in place, also while streaming (new `on_citations` callback), and a source list.
+- Evaluation: native `cited_text` must be text of the cited chunk (`valid`), and each expected fact must be quoted by
+  the citation attached to the sentence that states it (`grounded`, new `--min-grounded`). New `--min-pass-rate`;
+  not-covered cases are mandatory and fail the run if they cite anything. CI runs with `--min-pass-rate 1.0`.
+- `--offline` CLI flag: answers with the deterministic extractive stand-in, no API key needed.
+- Tests: the real SDK against a local HTTP mock (request and streamed citations), and a check that the README's
+  offline output block is the real output.
 - Cache chunk embeddings on disk when a stable encoder identity is available.
 - Expose the soft chunk size through all three command-line entry points.
 - Add repeatable evaluation case selection and Markdown reports.
+
+### Changed
+
+- The offline stand-in (`fakes.ExtractiveClient`) answers only from a passage containing at least half of the
+  question's terms and otherwise says "not covered" with no citation. All 14 evaluation cases now pass with BM25 and
+  with local embeddings (previously 13/14 each).
+- The system prompt no longer asks for typed `[source#n]` tags; typed tags are still scored as a fallback.
+- Rename the distribution to `ai-agent-starter` (the name `agent-starter` is taken on PyPI). The import name
+  `agent_starter` and the `agent-starter`, `agent-starter-mcp` and `agent-starter-eval` commands are unchanged.
+
+### Fixed
+
 - Reject query/chunk embedding dimension mismatches instead of truncating similarity calculations.
 - Return no passages for non-positive search limits.
+
+### Known risk
+
+- Native citations have not been run against the live Claude API from this repository (no credentials are used
+  here). The request and response shapes follow the documented API and the SDK's types, and are tested through the
+  real SDK against a local HTTP mock, but the model's behavior with them is not yet validated.
 
 ## [0.1.0] - 2026-11-02
 

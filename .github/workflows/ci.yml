@@ -28,8 +28,8 @@ jobs:
       - name: Tests (offline, no API key needed)
         run: pytest -q
 
-      - name: Offline evaluation (citations must point at the right passages)
-        run: python -m agent_starter.evals
+      - name: Offline evaluation (every case must pass; not-covered cases are mandatory)
+        run: python -m agent_starter.evals --min-pass-rate 1.0
 
   package:
     runs-on: ubuntu-latest
