@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows
 - Cache chunk embeddings on disk when a stable encoder identity is available.
 - Expose the soft chunk size through all three command-line entry points.
 - Add repeatable evaluation case selection and Markdown reports.
+- Evaluation: six Portuguese cases in `evals/cases.pt.jsonl`, kept out of the CI gate; a test checks their citations and facts.
 
 ### Changed
 

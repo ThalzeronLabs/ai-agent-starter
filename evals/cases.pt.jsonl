@@ -1,0 +1,6 @@
+{"id": "pt-reembolso-anual", "question": "Posso pedir reembolso de um plano anual depois de 10 dias?", "expected_citations": ["refunds.md#1"], "expected_facts": ["14 days"]}
+{"id": "pt-reembolso-mensal", "question": "Planos mensais são reembolsados?", "expected_citations": ["refunds.md#1"], "expected_facts": ["not refunded"]}
+{"id": "pt-como-pedir-reembolso", "question": "Como eu peço um reembolso?", "expected_citations": ["refunds.md#2"], "expected_facts": ["billing@northwind-notes.example"]}
+{"id": "pt-localizacao-dos-dados", "question": "Onde os meus dados ficam armazenados?", "expected_citations": ["security.md#2"], "expected_facts": ["Frankfurt"]}
+{"id": "pt-desconto-estudante", "question": "Estudantes têm desconto no plano Pro?", "expected_citations": ["plans.md#4"], "expected_facts": ["50% off Pro"]}
+{"id": "pt-sem-cobertura-modo-escuro", "question": "Existe modo escuro no aplicativo para iOS?", "expected_citations": [], "expected_facts": []}

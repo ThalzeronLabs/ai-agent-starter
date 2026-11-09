@@ -56,6 +56,18 @@ def test_every_expected_citation_exists_and_contains_its_facts():
             assert fact.lower() in cited_text, f"{case.id}: {fact!r} is not in {case.expected_citations}"
 
 
+def test_portuguese_cases_cite_real_passages_with_their_facts():
+    cases = load_cases(ROOT / "evals" / "cases.pt.jsonl")
+    assert len(cases) >= 4 and all(c.id.startswith("pt-") for c in cases)
+    chunks = {c.ref: c for c in INDEX.chunks}
+    for case in cases:
+        for ref in case.expected_citations:
+            assert ref in chunks, f"{case.id}: {ref} is not a chunk of docs-example"
+        cited_text = " ".join(chunks[ref].text.lower() for ref in case.expected_citations)
+        for fact in case.expected_facts:
+            assert fact.lower() in cited_text, f"{case.id}: {fact!r} is not in {case.expected_citations}"
+
+
 def test_invalid_case_lines_are_reported_with_their_position(tmp_path):
     path = tmp_path / "cases.jsonl"
     path.write_text('{"id": "a", "question": "q", "expected_citations": []}\n{"oops": 1}\n', encoding="utf-8")
