@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Optional `min_score` on `BM25Index` to filter weak retrieval matches. The default remains `0.0`.
 - Native, verifiable citations. `search_docs` and `read_document` return `search_result` blocks (one text block per
   sentence, citations enabled), and the agent reads the API's `search_result_location` citations into
   `AgentResult.parts` / `AgentResult.citations` (`Citation(ref, title, cited_text)`, new module `citations.py`).

@@ -47,6 +47,38 @@ def test_queries_with_no_shared_terms_return_nothing():
     assert index.search("the of and") == []  # only stopwords
 
 
+def test_bm25_min_score_drops_incidental_term_matches():
+    """A lone shared word can score just above 0; min_score filters those weak hits (#2)."""
+    docs = {
+        "security.md": "# Authenticator app\n\nUse the authenticator app for 2FA.",
+        "refunds.md": "# Refunds\n\nRefunds within 14 days of purchase.",
+    }
+    loose = BM25Index(docs)
+    assert any(c.source == "security.md" for c, _ in loose.search("Is there a dark mode in the iOS app?"))
+
+    # On this tiny corpus the incidental "app" hit is ~0.99; a real refund match is ~1.39.
+    strict = BM25Index(docs, min_score=1.0)
+    assert strict.search("Is there a dark mode in the iOS app?") == []
+    assert strict.search("refund purchase days")
+
+
+def test_bm25_min_score_fixes_example_docs_dark_mode_gap():
+    """On docs-example, not-covered-dark-mode tops out ~2.26 while covered hits stay ≥ ~3.8."""
+    loose = BM25Index.from_folder(EXAMPLE_DOCS)
+    assert any(c.ref == "security.md#1" for c, _ in loose.search("Is there a dark mode in the iOS app?"))
+
+    strict = BM25Index.from_folder(EXAMPLE_DOCS, min_score=3.0)
+    assert strict.search("Is there a dark mode in the iOS app?") == []
+    top_chunk, score = strict.search("refund annual plan days", k=1)[0]
+    assert top_chunk.ref == "refunds.md#1" and score > 3.0
+
+
+def test_bm25_default_min_score_keeps_previous_behaviour():
+    index = BM25Index.from_folder(EXAMPLE_DOCS)
+    assert index.min_score == 0.0
+    assert index.search("refund annual plan days")
+
+
 def test_k_limits_results_and_scores_are_sorted():
     index = BM25Index.from_folder(EXAMPLE_DOCS)
     hits = index.search("plan", k=3)

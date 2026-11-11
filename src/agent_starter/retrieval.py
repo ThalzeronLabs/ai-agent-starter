@@ -124,12 +124,25 @@ def build_retriever(folder: str | Path, kind: str = "bm25", **kwargs) -> Retriev
 
 
 class BM25Index:
-    """Okapi BM25 over chunks. `k1` controls term-frequency saturation, `b` length normalization."""
+    """Okapi BM25 over chunks. `k1` controls term-frequency saturation, `b` length normalization.
 
-    def __init__(self, documents: dict[str, str], k1: float = 1.5, b: float = 0.75, max_chars: int = 900):
+    `min_score` is a strict lower bound for returned scores. Tune it against
+    your own corpus because absolute BM25 scores depend on the documents.
+    The default `0.0` keeps the existing positive-score filter.
+    """
+
+    def __init__(
+        self,
+        documents: dict[str, str],
+        k1: float = 1.5,
+        b: float = 0.75,
+        max_chars: int = 900,
+        min_score: float = 0.0,
+    ):
         self.documents = documents
         self.chunks = [c for source, text in documents.items() for c in chunk_document(source, text, max_chars)]
         self.k1, self.b = k1, b
+        self.min_score = min_score
         self._terms = [Counter(tokenize(f"{c.heading} {c.text}")) for c in self.chunks]
         self._lengths = [sum(t.values()) for t in self._terms]
         self._avg_len = (sum(self._lengths) / len(self._lengths)) if self._lengths else 0.0
@@ -144,7 +157,7 @@ class BM25Index:
         return cls(load_folder(folder), **kwargs)
 
     def search(self, query: str, k: int = 4) -> list[tuple[Chunk, float]]:
-        """Top-k chunks for `query`, best first. Chunks that share no term with the query are never returned."""
+        """Top-k chunks for `query`, best first. Chunks at or below `min_score` are never returned."""
         if k <= 0:
             return []
         query_terms = tokenize(query)
@@ -159,7 +172,7 @@ class BM25Index:
                     continue
                 norm = tf + self.k1 * (1 - self.b + self.b * self._lengths[i] / (self._avg_len or 1))
                 score += self._idf.get(term, 0.0) * tf * (self.k1 + 1) / norm
-            if score > 0:
+            if score > self.min_score:
                 scored.append((self.chunks[i], score))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return scored[:k]
