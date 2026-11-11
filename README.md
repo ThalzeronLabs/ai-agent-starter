@@ -263,6 +263,10 @@ against a local HTTP mock, the MCP server (in-process and over stdio, through a 
 and its case file. CI runs them on Python 3.10, 3.12 and 3.13, runs the offline evaluation with every case required
 to pass, and builds and smoke-tests the wheel.
 
+## How I build this
+
+I use AI assistance (Claude) while I build this project: for drafting, exploring options and writing tests. I review every change myself, each one lands through a pull request with tests, and CI must pass before anything is merged. I'm responsible for every line.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the issues labelled
